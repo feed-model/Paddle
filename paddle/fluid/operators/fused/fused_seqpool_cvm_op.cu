@@ -32,7 +32,7 @@ using Vector = framework::Vector<T>;
 template <typename T>
 __global__ void FusedSeqpoolKernelNormal(const size_t N, T **input_values,
                                          T **seqpool_output_values,
-                                         size_t *lods_values,
+                                         const size_t *lods_values,
                                          const int batch_size,
                                          const int embedding_size,
                                          const float pad_value) {
@@ -178,7 +178,7 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
 template <typename T>
 __global__ void FusedSeqpoolCVMGradKernelWithCVM(
     const size_t N, T **out_grads_values, T **in_grads_values, T **cvm_values,
-    size_t *lods_values, const int batch_size, const int embedding_size,
+    const size_t *lods_values, const int batch_size, const int embedding_size,
     const int cvm_offset) {
   CUDA_KERNEL_LOOP(i, N) {
     int key = i / embedding_size;
@@ -202,7 +202,7 @@ __global__ void FusedSeqpoolCVMGradKernelWithCVM(
 template <typename T>
 __global__ void FusedSeqpoolCVMGradKernelWithShow(
     const size_t N, T **out_grads_values, T **in_grads_values, T **cvm_values,
-    size_t *lods_values, const int batch_size, const int embedding_size,
+    const size_t *lods_values, const int batch_size, const int embedding_size,
     const int cvm_offset) {
   CUDA_KERNEL_LOOP(i, N) {
     int key = i / embedding_size;
@@ -227,7 +227,7 @@ __global__ void FusedSeqpoolCVMGradKernelWithShow(
 template <typename T>
 __global__ void FusedSeqpoolCVMGradKernelNoCVM(
     const size_t N, T **out_grads_values, T **in_grads_values, T **cvm_values,
-    size_t *lods_values, const int batch_size, const int embedding_size,
+    const size_t *lods_values, const int batch_size, const int embedding_size,
     const int cvm_offset) {
   CUDA_KERNEL_LOOP(i, N) {
     int key = i / embedding_size;
