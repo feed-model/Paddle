@@ -31,7 +31,7 @@ using Vector = framework::Vector<T>;
 // normal
 template <typename T>
 __global__ void FusedSeqpoolKernelNormal(const size_t N, T **input_values,
-                                         T **seqpool_output_values,
+                                         T *seqpool_output_values,
                                          const size_t *lods_values,
                                          const int batch_size,
                                          const int embedding_size,
@@ -49,14 +49,16 @@ __global__ void FusedSeqpoolKernelNormal(const size_t N, T **input_values,
     for (auto k = start; k < end; ++k) {
       val += *(input_values[x] + k * embedding_size + offset);
     }
-    *(seqpool_output_values[x] + y * embedding_size + offset) = val;
+    // x * batch_size * embedding_size + y * embedding_size + offset
+    // key * embedding_size + offset
+    seqpool_output_values[i] = val;
   }
 }
 
 // join need show click input
 template <typename T>
 __global__ void FusedCVMKernelWithCVM(const size_t N, T **output_values,
-                                      T **seqpool_output_values,
+                                      T *seqpool_output_values,
                                       const int batch_size,
                                       const int embedding_size,
                                       const int cvm_offset) {
@@ -67,14 +69,14 @@ __global__ void FusedCVMKernelWithCVM(const size_t N, T **output_values,
     int y = key % batch_size;  // ins id
     if (offset == 0) {         // show
       *(output_values[x] + y * embedding_size) =
-          log(*(seqpool_output_values[x] + y * embedding_size) + 1);
+          log(seqpool_output_values[i] + 1);
     } else if (offset == 1) {  // click
       *(output_values[x] + y * embedding_size + offset) =
-          log(*(seqpool_output_values[x] + y * embedding_size + 1) + 1) -
-          log(*(seqpool_output_values[x] + y * embedding_size) + 1);
+          log(seqpool_output_values[i + 1] + 1) -
+          log(seqpool_output_values[i] + 1);
     } else {
       *(output_values[x] + y * embedding_size + offset) =
-          *(seqpool_output_values[x] + y * embedding_size + offset);
+        seqpool_output_values[i];
     }
   }
 }
@@ -82,7 +84,7 @@ __global__ void FusedCVMKernelWithCVM(const size_t N, T **output_values,
 // update not need show click input
 template <typename T>
 __global__ void FusedCVMKernelNoCVM(const size_t N, T **output_values,
-                                    T **seqpool_output_values,
+                                    T *seqpool_output_values,
                                     const int batch_size,
                                     const int no_cvm_embedding_size,
                                     const int cvm_offset) {
@@ -92,9 +94,12 @@ __global__ void FusedCVMKernelNoCVM(const size_t N, T **output_values,
     int x = key / batch_size;  // slot id
     int y = key % batch_size;  // ins id
     // no cvm
+
+    // x * batch_size * embedding_size + y * embedding_size + offset
+    // key * (no_cvm_embedding_size + cvm_offset) + offset
+    // i + key * cvm_offset
     *(output_values[x] + y * no_cvm_embedding_size + offset) =
-        *(seqpool_output_values[x] + y * (no_cvm_embedding_size + cvm_offset) +
-          offset + cvm_offset);
+        seqpool_output_values[i + key * cvm_offset];
   }
 }
 
@@ -103,7 +108,6 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
                          &ctx,  // const paddle::platform::Place &place,
                      const std::vector<const T *> &input_data,
                      const std::vector<T *> &output_data,
-                     const std::vector<T *> &seqpool_output_data,
                      const size_t* lods, const int batch_size,
                      const int slot_num, const int embedding_size,
                      const float padding_value, const bool use_cvm,
@@ -111,10 +115,11 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
   auto stream =
       ctx.template device_context<platform::CUDADeviceContext>().stream();
   auto &dev_ctx = ctx.template device_context<platform::CUDADeviceContext>();
-  size_t total_ptr_len = input_data.size() + output_data.size() +
-                         seqpool_output_data.size();
+  size_t seqpool_output_size = batch_size * embedding_size * slot_num;
+  size_t total_ptr_len = input_data.size() + output_data.size();
   auto temp_ptr =
-      memory::AllocShared(ctx.GetPlace(), total_ptr_len * sizeof(void *));
+      memory::AllocShared(ctx.GetPlace(), total_ptr_len * sizeof(void *)
+        + seqpool_output_size * sizeof(T));
   void *ptr = temp_ptr->ptr();
 
 #ifdef PADDLE_WITH_HIP
@@ -127,11 +132,6 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
   platform::GpuMemcpyAsync(gpu_output_values, output_data.data(),
                            output_data.size() * sizeof(T *),
                            hipMemcpyHostToDevice, stream);
-  T **gpu_seqpool_output_values =
-      reinterpret_cast<T **>(&gpu_output_values[output_data.size()]);
-  platform::GpuMemcpyAsync(
-      gpu_seqpool_output_values, seqpool_output_data.data(),
-      seqpool_output_data.size() * sizeof(T *), hipMemcpyHostToDevice, stream);
 #else
   T **gpu_input_values = reinterpret_cast<T **>(temp_ptr->ptr());
   platform::GpuMemcpyAsync(gpu_input_values, input_data.data(),
@@ -142,25 +142,21 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
   platform::GpuMemcpyAsync(gpu_output_values, output_data.data(),
                            output_data.size() * sizeof(T *),
                            cudaMemcpyHostToDevice, stream);
-  T **gpu_seqpool_output_values =
-      reinterpret_cast<T **>(&gpu_output_values[output_data.size()]);
-  platform::GpuMemcpyAsync(
-      gpu_seqpool_output_values, seqpool_output_data.data(),
-      seqpool_output_data.size() * sizeof(T *), cudaMemcpyHostToDevice, stream);
 #endif
+  T *seqpool_output_data = reinterpret_cast<T *>(&gpu_output_values[output_data.size()]);
 
   size_t N = static_cast<size_t>(batch_size * slot_num * embedding_size);
   platform::GpuLaunchConfig config = GetGpuLaunchConfig1D(dev_ctx, N);
   // first sum pool
   FusedSeqpoolKernelNormal<<<config.block_per_grid.x, config.thread_per_block.x,
                              0, stream>>>(
-      N, gpu_input_values, gpu_seqpool_output_values, lods, batch_size,
+      N, gpu_input_values, seqpool_output_data, lods, batch_size,
       embedding_size, padding_value);
   // second log
   if (use_cvm) {
     FusedCVMKernelWithCVM<<<config.block_per_grid.x, config.thread_per_block.x,
                             0, stream>>>(N, gpu_output_values,
-                                         gpu_seqpool_output_values, batch_size,
+                                         seqpool_output_data, batch_size,
                                          embedding_size, cvm_offset);
   } else {
     // not need show click input
@@ -169,7 +165,7 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
     platform::GpuLaunchConfig config = GetGpuLaunchConfig1D(dev_ctx, N);
     FusedCVMKernelNoCVM<<<config.block_per_grid.x, config.thread_per_block.x, 0,
                           stream>>>(N, gpu_output_values,
-                                    gpu_seqpool_output_values, batch_size,
+                                    seqpool_output_data, batch_size,
                                     (embedding_size - cvm_offset), cvm_offset);
   }
 }
@@ -329,8 +325,6 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
     std::vector<T *> output_data(slot_size);
 
     std::vector<LoDTensor> seqpool_outputs(slot_size);
-    std::vector<T *> seqpool_output_data(slot_size);
-
     auto padding_value = ctx.Attr<float>("pad_value");
     auto use_cvm = ctx.Attr<bool>("use_cvm");
     const int cvm_offset = ctx.Attr<int>("cvm_offset");
@@ -384,12 +378,9 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
       }
       output_data[i] =
           reinterpret_cast<T *>(output->mutable_data<T>(ctx.GetPlace()));
-      seqpool_output_data[i] =
-          reinterpret_cast<T *>(seqpool_outputs[i].mutable_data<T>(
-              {batch_size, embedding_size}, ctx.GetPlace()));
     }
 
-    FusedSeqpoolCVM(ctx, input_data, output_data, seqpool_output_data,
+    FusedSeqpoolCVM(ctx, input_data, output_data,
                     mix_lods_data, batch_size, slot_size, embedding_size,
                     padding_value, use_cvm, cvm_offset);
   }
