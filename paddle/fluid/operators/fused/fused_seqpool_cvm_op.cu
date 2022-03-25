@@ -61,7 +61,7 @@ __global__ void FusedCVMKernelWithCVM(const size_t N, T **input_values, T **outp
                                       const int embedding_size,
                                       const int cvm_offset) {
   const int no_cvm_embedding_size = embedding_size - cvm_offset;
-  FusedCVMKernelNoCVMDevice(N, input_values, output_values
+  FusedCVMKernelNoCVMDevice(N, input_values, output_values,
     batch_size, pad_value, no_cvm_embedding_size, cvm_offset);
   CUDA_KERNEL_LOOP(i, N) {
     int x = i / batch_size;  // slot id
