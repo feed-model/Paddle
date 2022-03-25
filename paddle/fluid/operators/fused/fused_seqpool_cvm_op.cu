@@ -142,7 +142,7 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
   // second log
   if (use_cvm) {
     FusedCVMKernelWithCVM<<<config.block_per_grid.x, config.thread_per_block.x,
-                            0, stream>>>(N, gpu_input_values, gpu_output_values, batch_size, padding_value
+                            0, stream>>>(N, gpu_input_values, gpu_output_values, batch_size, padding_value,
                                          embedding_size, cvm_offset);
   } else {
     // not need show click input
@@ -150,7 +150,7 @@ void FusedSeqpoolCVM(const framework::ExecutionContext
                             (embedding_size - cvm_offset));
     platform::GpuLaunchConfig config = GetGpuLaunchConfig1D(dev_ctx, N);
     FusedCVMKernelNoCVM<<<config.block_per_grid.x, config.thread_per_block.x, 0,
-                          stream>>>(N, gpu_input_values, gpu_output_values, batch_size, padding_value
+                          stream>>>(N, gpu_input_values, gpu_output_values, batch_size, padding_value,
                                     (embedding_size - cvm_offset), cvm_offset);
   }
 }
