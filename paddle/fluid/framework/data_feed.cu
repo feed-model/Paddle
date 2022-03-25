@@ -11,6 +11,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License. */
 
+#if defined _WIN32 || defined __APPLE__
+#else
+#define _LINUX
+#endif
 #if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
 
 #include "paddle/fluid/framework/data_feed.h"

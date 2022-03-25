@@ -40,6 +40,20 @@ namespace framework {
 std::shared_ptr<PSGPUWrapper> PSGPUWrapper::s_instance_ = NULL;
 bool PSGPUWrapper::is_initialized_ = false;
 
+#ifdef PADDLE_WITH_PSLIB
+void PSGPUWrapper::InitAfsApi(const std::string& fs_name,
+                              const std::string& fs_user,
+                              const std::string& pass_wd,
+                              const std::string& conf) {
+  int ret = afs_handler_.init(fs_name.c_str(), fs_user.c_str(), pass_wd.c_str(),
+                              conf.c_str());
+  if (ret != 0) {
+    LOG(ERROR) << "AFS Init Error";
+  }
+  use_afs_api_ = 1;
+}
+#endif
+
 void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
   VLOG(3) << "PSGPUWrapper::BuildGPUPSTask begin";
   platform::Timer timeline;
@@ -164,11 +178,10 @@ void PSGPUWrapper::PreBuildTask(std::shared_ptr<HeterContext> gpu_task) {
       for (auto iter = total_data.begin() + begin_index;
            iter != total_data.begin() + end_index; iter++) {
         const auto& ins = *iter;
-        const auto& feasign_v = ins.uint64_feasigns_;
+        const auto& feasign_v = ins.uint64_feasign_values_;
         for (const auto feasign : feasign_v) {
-          uint64_t cur_key = feasign.sign().uint64_feasign_;
-          int shard_id = cur_key % thread_keys_shard_num_;
-          this->thread_keys_[i][shard_id].insert(cur_key);
+          int shard_id = feasign % thread_keys_shard_num_;
+          this->thread_keys_[i][shard_id].insert(feasign);
         }
       }
     };

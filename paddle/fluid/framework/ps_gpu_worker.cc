@@ -130,6 +130,8 @@ void PSGPUWorker::TrainFiles() {
   device_reader_->Start();
   int cur_batch;
   int batch_cnt = 0;
+
+  platform::SetDeviceId(thread_id_);
   while ((cur_batch = device_reader_->Next()) > 0) {
     total_ins_num += cur_batch;
     for (auto& op : ops_) {
@@ -226,6 +228,7 @@ void PSGPUWorker::TrainFilesWithProfiler() {
   int total_ins_num = 0;
   int cur_batch;
   timeline.Start();
+  platform::SetDeviceId(thread_id_);
   while ((cur_batch = device_reader_->Next()) > 0) {
     total_ins_num += cur_batch;
     timeline.Pause();
@@ -268,6 +271,8 @@ void PSGPUWorker::TrainFilesWithProfiler() {
             << ", mean time: " << op_total_time[i] / total_ins_num
             << "s, totol time:" << op_total_time[i] << "sec";
   }
+  VLOG(0) << "card: " << thread_id_ << " read time: " << read_time
+          << ", percent: " << read_time / total_time * 100;
   return;
 }
 

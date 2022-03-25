@@ -18,6 +18,7 @@ limitations under the License. */
 #endif
 
 #include "paddle/fluid/framework/data_feed.h"
+#include "paddle/fluid/framework/fleet/ps_gpu_wrapper.h"
 #ifdef _LINUX
 #include <stdio_ext.h>
 #include <sys/mman.h>
@@ -555,10 +556,13 @@ void InMemoryDataFeed<T>::LoadIntoMemory() {
 
 template <typename T>
 void InMemoryDataFeed<T>::LoadIntoMemoryFromSo() {
-#ifdef _LINUX
+#if (defined _LINUX) && (defined PADDLE_WITH_HETERPS) && \
+    (defined PADDLE_WITH_PSLIB)
   VLOG(3) << "LoadIntoMemoryFromSo() begin, thread_id=" << thread_id_;
 
-  string::LineFileReader reader;
+  int buf_len = 1024 * 1024 * 10;
+  char* buf = reinterpret_cast<char*> malloc(buf_len + 10);
+  auto ps_gpu_ptr = PSGPUWrapper::GetInstance();
   paddle::framework::CustomParser* parser =
       global_dlmanager_pool().Load(so_parser_name_, slot_conf_);
 
@@ -566,34 +570,35 @@ void InMemoryDataFeed<T>::LoadIntoMemoryFromSo() {
   while (this->PickOneFile(&filename)) {
     VLOG(3) << "PickOneFile, filename=" << filename
             << ", thread_id=" << thread_id_;
-    int err_no = 0;
-    this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
-    CHECK(this->fp_ != nullptr);
-    __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-
-    paddle::framework::ChannelWriter<T> writer(input_channel_);
-    T instance;
     platform::Timer timeline;
     timeline.Start();
 
-    while (1) {
-      if (!reader.getline(&*(fp_.get()))) {
-        break;
-      } else {
-        const char* str = reader.get();
-        ParseOneInstanceFromSo(str, &instance, parser);
+    if (ps_gpu_ptr->UseAfsApi()) {
+      auto afs_reader = ps_gpu_ptr->OpenReader(filename);
+      int read_len = 0;
+      char* cursor = buf;
+      int remain = 0;
+      while ((read_len = afs_reader->read(cursor, buf_len - remain)) > 0) {
+        std::vector<T> instances;
+        read_len += remain;
+        remain = ParseInstanceFromSo(read_len, buf, &instances, parser);
+        input_channel_->Write(std::move(instances));
+        instances = std::vector<T>();
+        if (remain) {
+          memmove(buf, buf + read_len - remain, remain);
+        }
+        cursor = buf + remain;
       }
-
-      writer << std::move(instance);
-      instance = T();
+    } else {
+      VLOG(0) << "Should Call InitAfsApi First";
     }
 
-    writer.Flush();
     timeline.Pause();
     VLOG(3) << "LoadIntoMemoryFromSo() read all lines, file=" << filename
             << ", cost time=" << timeline.ElapsedSec()
             << " seconds, thread_id=" << thread_id_;
   }
+  free(buf);
   VLOG(3) << "LoadIntoMemoryFromSo() end, thread_id=" << thread_id_;
 #endif
 }
@@ -1118,10 +1123,11 @@ void MultiSlotInMemoryDataFeed::GetMsgFromLogKey(const std::string& log_key,
   *rank = (uint32_t)strtoul(rank_str.c_str(), NULL, 16);
 }
 
-void MultiSlotInMemoryDataFeed::ParseOneInstanceFromSo(const char* str,
-                                                       Record* instance,
-                                                       CustomParser* parser) {
-  parser->ParseOneInstance(str, instance);
+int MultiSlotInMemoryDataFeed::ParseInstanceFromSo(
+    int len, const char* str, std::vector<Record>* instances,
+    CustomParser* parser) {
+  // VLOG(0) << "parser: " << parser;
+  return parser->ParseInstance(len, str, instances);
 }
 
 bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
@@ -1220,7 +1226,8 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
 #if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
       if (idx != -1) {
         if (all_slots_type_[i][0] == 'f') {  // float
-          instance->float_offset_.push_back(instance->float_feasigns_.size());
+          instance->float_offset_.push_back(
+              instance->float_feasign_values_.size());
           for (int j = 0; j < num; ++j) {
             float feasign = strtof(endptr, &endptr);
             // if float feasign is equal to zero, ignore it
@@ -1228,18 +1235,19 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
             if (fabs(feasign) < 1e-6 && !use_slots_is_dense_[i]) {
               continue;
             }
-            FeatureFeasign f;
-            f.float_feasign_ = feasign;
-            instance->float_feasigns_.push_back(FeatureItem(f, idx));
+            // FeatureFeasign f;
+            // f.float_feasign_ = feasign;
+            // instance->float_feasigns_.push_back(FeatureItem(f, idx));
             instance->float_feasign_values_.push_back(feasign);
           }
         } else if (all_slots_type_[i][0] == 'u') {  // uint64
-          instance->uint64_offset_.push_back(instance->uint64_feasigns_.size());
+          instance->uint64_offset_.push_back(
+              instance->uint64_feasign_values_.size());
           for (int j = 0; j < num; ++j) {
             uint64_t feasign = (uint64_t)strtoull(endptr, &endptr, 10);
-            FeatureFeasign f;
-            f.uint64_feasign_ = feasign;
-            instance->uint64_feasigns_.push_back(FeatureItem(f, idx));
+            // FeatureFeasign f;
+            // f.uint64_feasign_ = feasign;
+            // instance->uint64_feasigns_.push_back(FeatureItem(f, idx));
             instance->uint64_feasign_values_.push_back(feasign);
           }
         }
@@ -1254,8 +1262,13 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
       }
     }
 
-    instance->uint64_offset_.push_back(instance->uint64_feasigns_.size());
-    instance->float_offset_.push_back(instance->float_feasigns_.size());
+    instance->uint64_offset_.push_back(instance->uint64_feasign_values_.size());
+    instance->float_offset_.push_back(instance->float_feasign_values_.size());
+    instance->uint64_offset_.shrink_to_fit();
+    instance->float_offset_.shrink_to_fit();
+    instance->float_feasign_values_.shrink_to_fit();
+    instance->uint64_feasign_values_.shrink_to_fit();
+    fea_num_ += instance->uint64_feasign_values_.size();
 #else
       if (idx != -1) {
         if (all_slots_type_[i][0] == 'f') {  // float
@@ -1294,10 +1307,10 @@ bool MultiSlotInMemoryDataFeed::ParseOneInstanceFromPipe(Record* instance) {
         }
       }
     }
-#endif
     instance->float_feasigns_.shrink_to_fit();
     instance->uint64_feasigns_.shrink_to_fit();
     fea_num_ += instance->uint64_feasigns_.size();
+#endif
     return true;
   }
 #else
@@ -2299,21 +2312,31 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
 
     int lines = 0;
     bool is_ok = true;
+    auto ps_gpu_ptr = PSGPUWrapper::GetInstance();
     do {
-      int err_no = 0;
-      this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
+      if (ps_gpu_ptr->UseAfsApi()) {
+        auto afs_reader = ps_gpu_ptr->OpenReader(filename);
+        is_ok = parser->ParseFileInstance(
+            [this, afs_reader](char* buf, int len) {
+              return afs_reader->read(buf, len);
+            },
+            pull_record_func, lines);
+      } else {
+        int err_no = 0;
+        this->fp_ = fs_open_read(filename, &err_no, this->pipe_command_);
 
-      CHECK(this->fp_ != nullptr);
-      __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
-      is_ok = parser->ParseFileInstance(
-          [this](char* buf, int len) {
-            return fread(buf, sizeof(char), len, this->fp_.get());
-          },
-          pull_record_func, lines);
+        CHECK(this->fp_ != nullptr);
+        __fsetlocking(&*(this->fp_), FSETLOCKING_BYCALLER);
+        is_ok = parser->ParseFileInstance(
+            [this](char* buf, int len) {
+              return fread(buf, sizeof(char), len, this->fp_.get());
+            },
+            pull_record_func, lines);
 
-      if (!is_ok) {
-        LOG(WARNING) << "parser error, filename=" << filename
-                     << ", lines=" << lines;
+        if (!is_ok) {
+          LOG(WARNING) << "parser error, filename=" << filename
+                       << ", lines=" << lines;
+        }
       }
     } while (!is_ok);
     timeline.Pause();
@@ -3139,7 +3162,7 @@ void MiniBatchGpuPack::pack_uint64_data(const std::vector<Record>& ins_vec) {
 
   for (size_t i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    uint64_total_num += r.uint64_feasigns_.size();
+    uint64_total_num += r.uint64_feasign_values_.size();
     buf_.h_uint64_lens[i + 1] = uint64_total_num;
   }
 
@@ -3151,7 +3174,7 @@ void MiniBatchGpuPack::pack_uint64_data(const std::vector<Record>& ins_vec) {
   uint64_total_num = 0;
   for (size_t i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    fea_num = r.uint64_feasigns_.size();
+    fea_num = r.uint64_feasign_values_.size();
     if (fea_num > 0) {
       memcpy(&buf_.h_uint64_keys[uint64_total_num],
              r.uint64_feasign_values_.data(), fea_num * sizeof(uint64_t));
@@ -3179,7 +3202,7 @@ void MiniBatchGpuPack::pack_float_data(const std::vector<Record>& ins_vec) {
 
   for (size_t i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    float_total_num += r.float_feasigns_.size();
+    float_total_num += r.float_feasign_values_.size();
     buf_.h_float_lens[i + 1] = float_total_num;
   }
 
@@ -3191,7 +3214,7 @@ void MiniBatchGpuPack::pack_float_data(const std::vector<Record>& ins_vec) {
   float_total_num = 0;
   for (size_t i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    fea_num = r.float_feasigns_.size();
+    fea_num = r.float_feasign_values_.size();
     memcpy(&buf_.h_float_keys[float_total_num], r.float_feasign_values_.data(),
            fea_num * sizeof(float));
     float_total_num += fea_num;
@@ -3217,9 +3240,9 @@ void MiniBatchGpuPack::pack_all_data(const std::vector<Record>& ins_vec) {
 
   for (size_t i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    uint64_total_num += r.uint64_feasigns_.size();
+    uint64_total_num += r.uint64_feasign_values_.size();
     buf_.h_uint64_lens[i + 1] = uint64_total_num;
-    float_total_num += r.float_feasigns_.size();
+    float_total_num += r.float_feasign_values_.size();
     buf_.h_float_lens[i + 1] = float_total_num;
   }
 
@@ -3236,14 +3259,14 @@ void MiniBatchGpuPack::pack_all_data(const std::vector<Record>& ins_vec) {
   float_total_num = 0;
   for (size_t i = 0; i < num; ++i) {
     auto& r = ins_vec[i];
-    fea_num = r.uint64_feasigns_.size();
+    fea_num = r.uint64_feasign_values_.size();
     if (fea_num > 0) {
       memcpy(&buf_.h_uint64_keys[uint64_total_num],
              r.uint64_feasign_values_.data(), fea_num * sizeof(uint64_t));
     }
     uint64_total_num += fea_num;
 
-    fea_num = r.float_feasigns_.size();
+    fea_num = r.float_feasign_values_.size();
     memcpy(&buf_.h_float_keys[float_total_num], r.float_feasign_values_.data(),
            fea_num * sizeof(float));
     float_total_num += fea_num;
