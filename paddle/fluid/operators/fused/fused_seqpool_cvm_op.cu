@@ -37,10 +37,11 @@ __device__ void FusedCVMKernelNoCVMDevice(const size_t slot_num, T **input_value
                                     const int cvm_offset,
                                     const int output_embedding_size,
                                     const int output_offset) {
-  size_t N = (embedding_size - cvm_offset) * slot_num * batch_size;
+  const no_cvm_embedding_size = (embedding_size - cvm_offset);
+  size_t N = no_cvm_embedding_size * slot_num * batch_size;
   CUDA_KERNEL_LOOP(i, N) {
-    int key = i / output_embedding_size;
-    int offset = i % output_embedding_size;
+    int key = i / no_cvm_embedding_size;
+    int offset = i % no_cvm_embedding_size;
     int x = key / batch_size;  // slot id
     int y = key % batch_size;  // ins id
     // no cvm
@@ -322,6 +323,7 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
     int batch_size = inputs[0]->lod().size() ? inputs[0]->lod()[0].size() - 1 : inputs[0]->dims()[0];
     std::vector<size_t> mix_lods;
     mix_lods.reserve(slot_size * (batch_size + 1));
+    #pragma omp parallel for
     for (size_t i = 0; i < slot_size; ++i) {
       const auto *input = inputs[i];
       if (input->lod().size() != 0) {
@@ -355,6 +357,7 @@ class FusedSeqpoolCVMCUDAKernel : public framework::OpKernel<T> {
                           "please cheack"));
     paddle::framework::MixVector<size_t> mix_lods_v(&mix_lods);
     auto mix_lods_data = mix_lods_v.CUDAData(ctx.GetPlace());
+    #pragma omp parallel for
     for (size_t i = 0; i < slot_size; ++i) {
       const auto *input = inputs[i];
       input_data[i] = reinterpret_cast<const T *>(input->data<T>());
@@ -396,6 +399,7 @@ class FusedSeqpoolCVMGradCUDAKernel : public framework::OpKernel<T> {
     int batch_size = in_grads[0]->lod().size() ? in_grads[0]->lod()[0].size() - 1 : in_grads[0]->dims()[0];
     std::vector<size_t> mix_lods;
     mix_lods.reserve(slot_size * (batch_size + 1));
+    #pragma omp parallel for
     for (size_t i = 0; i < slot_size; ++i) {
       auto *in_grad = in_grads[i];
       if (in_grad->lod().size() != 0) {
@@ -429,6 +433,7 @@ class FusedSeqpoolCVMGradCUDAKernel : public framework::OpKernel<T> {
     paddle::framework::MixVector<size_t> mix_lods_v(&mix_lods);
     auto mix_lods_data = mix_lods_v.CUDAData(ctx.GetPlace());
 
+    #pragma omp parallel for
     for (size_t i = 0; i < slot_size; ++i) {
       auto *in_grad = in_grads[i];
 
