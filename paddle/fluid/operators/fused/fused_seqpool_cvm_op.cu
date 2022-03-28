@@ -37,7 +37,7 @@ __device__ void FusedCVMKernelNoCVMDevice(const size_t slot_num, T **input_value
                                     const int cvm_offset,
                                     const int output_embedding_size,
                                     const int output_offset) {
-  const no_cvm_embedding_size = (embedding_size - cvm_offset);
+  const size_t no_cvm_embedding_size = (embedding_size - cvm_offset);
   size_t N = no_cvm_embedding_size * slot_num * batch_size;
   CUDA_KERNEL_LOOP(i, N) {
     int key = i / no_cvm_embedding_size;
