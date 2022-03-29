@@ -561,7 +561,7 @@ void InMemoryDataFeed<T>::LoadIntoMemoryFromSo() {
   VLOG(3) << "LoadIntoMemoryFromSo() begin, thread_id=" << thread_id_;
 
   int buf_len = 1024 * 1024 * 10;
-  char* buf = reinterpret_cast<char*>(malloc(buf_len + 10));
+  char* buf = reinterpret_cast<char*> malloc(buf_len + 10);
   auto ps_gpu_ptr = PSGPUWrapper::GetInstance();
   paddle::framework::CustomParser* parser =
       global_dlmanager_pool().Load(so_parser_name_, slot_conf_);
