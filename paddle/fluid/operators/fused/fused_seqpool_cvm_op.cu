@@ -83,7 +83,7 @@ __global__ void FusedCVMKernelWithCVM(const size_t slot_num, T **input_values, T
       click_sum += values_ptr[1];
     }
     show_sum = log(show_sum + 1);
-    click_sum = log(click_sum + 1) - show;
+    click_sum = log(click_sum + 1) - show_sum;
     auto out_values_ptr = output_values[x] + y * embedding_size;
     out_values_ptr[0] = show_sum;
     out_values_ptr[1] = click_sum;
