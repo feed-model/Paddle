@@ -40,6 +40,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/place.h"
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/phi/backends/dynload/port.h"
+#include "paddle/fluid/platform/device/gpu/cuda/cuda_graph.h"
 
 namespace paddle {
 namespace framework {
@@ -464,6 +465,7 @@ class PSGPUWorker : public HogwildWorker {
   void CopySparseTable();
   void CopyDenseTable();
   void CopyDenseVars();
+  void PrepareCudaGraph();
 
  private:
   int mpi_rank_;
@@ -472,6 +474,7 @@ class PSGPUWorker : public HogwildWorker {
   ProgramDesc program_;
   HeterObjectPool<HeterTask> object_pool_;
   bool need_to_push_dense_;
+
   bool dump_slot_;
   bool need_to_push_sparse_;
   DownpourWorkerParameter param_;
@@ -489,6 +492,13 @@ class PSGPUWorker : public HogwildWorker {
 
   // skipped ops
   std::vector<std::string> skip_ops_;
+
+  struct OpOrCudaGraph {
+    std::vector<OperatorBase*> ops;
+    bool need_capture;
+    std::unique_ptr<platform::CUDAGraph> cudagraph;
+  }; 
+  std::vector<OpOrCudaGraph> op_or_cudagraphs_;
 
   std::vector<::std::future<int32_t>> push_sparse_status_;
   std::vector<::std::future<int32_t>> push_dense_status_;
