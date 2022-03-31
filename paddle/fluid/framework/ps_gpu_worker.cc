@@ -146,9 +146,9 @@ void PSGPUWorker::PrepareCudaGraph() {
         need_capture = true;
         auto inputs = op->InputVars();
         auto outputs = op->OutputVars(true);
-        inputs.push_back(inputs.end(), outputs.begin(), outputs.end());
+        inputs.insert(inputs.end(), outputs.begin(), outputs.end());
         for (auto tensor_name : inputs) {
-          auto var = thread_scope_.FindVar(tensor_name);
+          auto var = thread_scope_->FindVar(tensor_name);
           if (var == nullptr) {
             need_capture = false;
             break;
