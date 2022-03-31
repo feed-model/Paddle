@@ -230,7 +230,7 @@ void PSGPUWorker::TrainFiles() {
       for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
         if (op_or_cuda_graph.need_capture) {
           VLOG(0) << "[thread: " << place_.GetDeviceId() << "]"
-            "[op_num: " << op_or_cuda_graph.size() << "]"
+            "[op_num: " << op_or_cuda_graph.ops.size() << "]"
             "cudagraph begin capture";
           if (op_or_cuda_graph.cudagraph == nullptr) {
             platform::BeginCUDAGraphCapture(place_, cudaStreamCaptureModeThreadLocal);
