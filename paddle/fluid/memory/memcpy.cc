@@ -19,6 +19,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/profiler.h"
 #include "paddle/phi/common/place.h"
 #include "paddle/phi/backends/gpu/gpu_info.h"
+#include "paddle/fluid/platform/cuda_graph_with_memory_pool.h"
 
 #ifdef PADDLE_WITH_XPU
 #include "paddle/fluid/platform/device/xpu/xpu_header.h"
