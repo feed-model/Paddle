@@ -18,6 +18,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/device_context.h"
 #include "paddle/fluid/platform/profiler.h"
 #include "paddle/phi/common/place.h"
+#include "paddle/phi/backends/gpu/gpu_info.h"
 
 #ifdef PADDLE_WITH_XPU
 #include "paddle/fluid/platform/device/xpu/xpu_header.h"
@@ -1277,6 +1278,34 @@ void Copy<phi::Place, phi::CPUPlace>(phi::Place dst_place, void* dst,
                                      phi::CPUPlace src_place, const void* src,
                                      size_t num, void* stream) {
   Copy(dst_place, dst, phi::Place(src_place.GetType()), src, num, stream);
+}
+#endif
+
+#ifdef PADDLE_WITH_CUDA
+template <>
+void CopyConstantFromCPU<phi::GPUPlace>(phi::GPUPlace dst_place, void* dst, const void* src, size_t num,
+          void* stream) {
+    if (UNLIKELY(platform::CUDAGraph::IsThisThreadCapturing())) {
+      // when use cudaGraphCapture, dst will be a pooled allocation.
+      // So we can initialize it only when the cuda graph is capturing.
+      memory::Copy(dst_place, dst, phi::CPUPlace(),
+                  src, num, stream);
+      phi::backends::gpu::GpuDeviceSync();
+      return;
+    }
+
+    memory::Copy(dst_place, dst, phi::CPUPlace(),
+                src, num, stream);
+}
+
+template <>
+void CopyConstantFromCPU<phi::Place>(phi::GPUPlace dst_place, void* dst, const void* src, size_t num,
+          void* stream) {
+  PADDLE_ENFORCE_EQ(dst_place.GetType(), phi::AllocationType::GPU,
+                    platform::errors::PreconditionNotMet(
+                        "CopyConstantFromCPU only support GPUPlace"))
+  phi::CUDAPlace place_dst(dst_place.GetDeviceId());
+  CopyConstantFromCPU<phi::GPUPlace>(place_dst, dst, src, num, stream);
 }
 #endif
 
