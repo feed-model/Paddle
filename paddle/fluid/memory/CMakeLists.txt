@@ -9,12 +9,7 @@ endif()
 
 cc_library(malloc SRCS malloc.cc DEPS
     place enforce allocator_facade profiler ${MKLDNN_CTX_DEPS})
-
-if (WITH_GPU)
-    cc_library(memcpy SRCS memcpy.cc DEPS place device_context)
-else()
-    cc_library(memcpy SRCS memcpy.cc DEPS place device_context cuda_graph_with_memory_pool)
-endif()
+cc_library(memcpy SRCS memcpy.cc DEPS place device_context)
 
 cc_library(memory DEPS malloc memcpy)
 
