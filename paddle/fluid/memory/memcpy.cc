@@ -1305,7 +1305,7 @@ void CopyConstantFromCPU<phi::Place>(phi::Place dst_place, void* dst, const void
   PADDLE_ENFORCE_EQ(dst_place.GetType(), phi::AllocationType::GPU,
                     platform::errors::PreconditionNotMet(
                         "CopyConstantFromCPU only support GPUPlace"))
-  phi::CUDAPlace place_dst(dst_place.GetDeviceId());
+  phi::GPUPlace place_dst(dst_place.GetDeviceId());
   CopyConstantFromCPU<phi::GPUPlace>(place_dst, dst, src, num, stream);
 }
 #endif
