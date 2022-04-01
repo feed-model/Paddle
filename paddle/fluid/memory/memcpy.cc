@@ -1289,9 +1289,10 @@ void CopyConstantFromCPU<phi::GPUPlace>(phi::GPUPlace dst_place, void* dst, cons
     if (UNLIKELY(platform::CUDAGraph::IsThisThreadCapturing())) {
       // when use cudaGraphCapture, dst will be a pooled allocation.
       // So we can initialize it only when the cuda graph is capturing.
+      platform::CUDAGraph::EndSegmentCapture();
       memory::Copy(dst_place, dst, phi::CPUPlace(),
                   src, num, stream);
-      phi::backends::gpu::GpuDeviceSync();
+      platform::CUDAGraph::BeginSegmentCapture();
       return;
     }
 
