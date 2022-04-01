@@ -1300,7 +1300,7 @@ void CopyConstantFromCPU<phi::GPUPlace>(phi::GPUPlace dst_place, void* dst, cons
 }
 
 template <>
-void CopyConstantFromCPU<phi::Place>(phi::GPUPlace dst_place, void* dst, const void* src, size_t num,
+void CopyConstantFromCPU<phi::Place>(phi::Place dst_place, void* dst, const void* src, size_t num,
           void* stream) {
   PADDLE_ENFORCE_EQ(dst_place.GetType(), phi::AllocationType::GPU,
                     platform::errors::PreconditionNotMet(
