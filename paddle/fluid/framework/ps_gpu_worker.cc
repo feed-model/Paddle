@@ -253,7 +253,7 @@ void PSGPUWorker::TrainFiles() {
           }
 
           platform::RecordEvent op_type_record_event(
-              op_or_cuda_graph.cudagraph.name, platform::TracerEventType::Operator, 1);
+              op_or_cuda_graph.name, platform::TracerEventType::Operator, 1);
           op_or_cuda_graph.cudagraph->Replay();
         } else {
           for (auto& op : op_or_cuda_graph.ops) {
