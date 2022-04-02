@@ -69,9 +69,9 @@ __global__ void AddDataKernel(const int64_t *label_data,
   }
   CUDA_KERNEL_LOOP(i, numel) {
     auto predict_data = pred_data[i * inference_width + (inference_width - 1)];
-    PADDLE_ENFORCE(predict_data <= 1, "The predict data must less or equal 1.");
+    PADDLE_ENFORCE(predict_data <= 1, "The predict data(%f) must less or equal 1.", predict_data);
     PADDLE_ENFORCE(predict_data >= 0,
-                   "The predict data must gather or equal 0.");
+                   "The predict data(%f) must gather or equal 0.", predict_data);
     uint32_t binIdx = static_cast<uint32_t>(predict_data * num_thresholds);
     if (label_data[i]) {
       paddle::platform::CudaAtomicAdd(pos + cur_step_begin + binIdx, 1);
