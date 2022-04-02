@@ -202,39 +202,40 @@ void AucKernel(const Context &dev_ctx,
   auto *stat_neg_in_tensor = &stat_neg;
   auto *pos_in_data = stat_pos.data<int64_t>();
   auto *neg_in_data = stat_neg.data<int64_t>();
+  auto stream = ctx.stream();
 #ifdef PADDLE_WITH_CUDA
   if (stat_pos_in_tensor != stat_pos_out) {
-    cudaMemcpy(
+    cudaMemcpyAsync(
         origin_stat_pos,
         pos_in_data,
         ((1 + slide_steps) * (num_thresholds + 1) + (slide_steps > 0 ? 1 : 0)) *
             sizeof(int64_t),
-        cudaMemcpyDeviceToDevice);
+        cudaMemcpyDeviceToDevice, stream);
   }
   if (stat_neg_in_tensor != stat_neg_out) {
-    cudaMemcpy(
+    cudaMemcpyAsync(
         origin_stat_neg,
         neg_in_data,
         ((1 + slide_steps) * (num_thresholds + 1) + (slide_steps > 0 ? 1 : 0)) *
             sizeof(int64_t),
-        cudaMemcpyDeviceToDevice);
+        cudaMemcpyDeviceToDevice, stream);
   }
 #else
   if (stat_pos_in_tensor != stat_pos_out) {
-    hipMemcpy(
+    hipMemcpyAsync(
         origin_stat_pos,
         pos_in_data,
         ((1 + slide_steps) * (num_thresholds + 1) + (slide_steps > 0 ? 1 : 0)) *
             sizeof(int64_t),
-        hipMemcpyDeviceToDevice);
+        hipMemcpyDeviceToDevice, stream);
   }
   if (stat_neg_in_tensor != stat_neg_out) {
-    hipMemcpy(
+    hipMemcpyAsync(
         origin_stat_neg,
         neg_in_data,
         ((1 + slide_steps) * (num_thresholds + 1) + (slide_steps > 0 ? 1 : 0)) *
             sizeof(int64_t),
-        hipMemcpyDeviceToDevice);
+        hipMemcpyDeviceToDevice, stream);
   }
 #endif
 
