@@ -136,7 +136,7 @@ void PSGPUWorker::PrepareCudaGraph() {
     }
     if (!need_skip) {
       bool need_capture = false;
-      if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<bool>(enable_cuda_graph_capture_attr_name)) {
+      if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
         need_capture = true;
       }
       if (op_or_cudagraphs_.empty() || op_or_cudagraphs_.back().need_capture != need_capture) {
