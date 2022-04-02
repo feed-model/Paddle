@@ -179,8 +179,10 @@ void PSGPUWorker::PrepareCudaGraph() {
         op_or_cudagraphs_.back().need_capture = need_capture;
       }
       auto& op_or_cuda_graph = op_or_cudagraphs_.back();
-      if (!op_or_cuda_graph.name.empty()) {
-        op_or_cuda_graph.name += "_";
+      if (op_or_cuda_graph.name.empty()) {
+        op_or_cuda_graph.name = "cuda_graph:"
+      } else {
+        op_or_cuda_graph.name += ":";
       }
       op_or_cuda_graph.name += op->Type();
       op_or_cuda_graph.ops.emplace_back(op);
