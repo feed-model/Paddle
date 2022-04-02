@@ -202,7 +202,7 @@ void AucKernel(const Context &dev_ctx,
   auto *stat_neg_in_tensor = &stat_neg;
   auto *pos_in_data = stat_pos.data<int64_t>();
   auto *neg_in_data = stat_neg.data<int64_t>();
-  auto stream = ctx.stream();
+  auto stream = dev_ctx.stream();
 #ifdef PADDLE_WITH_CUDA
   if (stat_pos_in_tensor != stat_pos_out) {
     cudaMemcpyAsync(
