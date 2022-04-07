@@ -4458,6 +4458,7 @@ All parameter, weight, gradient are variables in Paddle.
 #endif
 #ifdef PADDLE_WITH_HETERPS
   BindPSGPUWrapper(&m);
+  BindAfsWrapper(&m);
 #endif
   BindGlooWrapper(&m);
   BindBoxHelper(&m);
