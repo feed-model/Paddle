@@ -572,7 +572,6 @@ void InMemoryDataFeed<T>::LoadIntoMemoryFromSo() {
             << ", thread_id=" << thread_id_;
     platform::Timer timeline;
     timeline.Start();
-
     if (ps_gpu_ptr->UseAfsApi()) {
       auto afs_reader = ps_gpu_ptr->OpenReader(filename);
       int read_len = 0;
@@ -2279,7 +2278,8 @@ void SlotRecordInMemoryDataFeed::LoadIntoMemoryByLib(void) {
 }
 
 void SlotRecordInMemoryDataFeed::LoadIntoMemoryByFile(void) {
-#ifdef _LINUX
+#if (defined _LINUX) && (defined PADDLE_WITH_HETERPS) && \
+    (defined PADDLE_WITH_PSLIB)
   paddle::framework::CustomParser* parser =
       global_dlmanager_pool().Load(so_parser_name_, all_slots_info_);
   CHECK(parser != nullptr);
