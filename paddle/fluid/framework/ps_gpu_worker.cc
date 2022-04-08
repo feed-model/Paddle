@@ -126,6 +126,20 @@ void PSGPUWorker::PrepareCudaGraph() {
   std::string enable_cuda_graph_capture_attr_name = "enable_cuda_graph_capture";
   op_or_cudagraphs_.reserve(ops_.size());
 
+  // when op is captured, its inputs and outputs will be never changed
+  // so the capture attribute can infect another op whose all inputs and outputs nerver changed
+  std::unordered_set<std::string> var_whitelist;
+  for (auto& op : ops_) {
+    if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
+      for (auto& input : op->InputVars()) {
+        var_whitelist.emplace(input);
+      }
+      for (auto& output : op->OutputVars(true)) {
+        var_whitelist.emplace(output);
+      }
+    }
+  }
+
   for (auto& op : ops_) {
     bool need_skip = false;
     for (auto t = 0u; t < skip_ops_.size(); ++t) {
@@ -139,17 +153,36 @@ void PSGPUWorker::PrepareCudaGraph() {
       if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
         need_capture = true;
       }
+      if (!need_capture) {
+        need_capture = true;
+        for (auto& input : op->InputVars()) {
+          if (var_whitelist.find(input) == var_whitelist.end()) {
+            need_capture = false;
+            break;
+          }
+        }
+        if (need_capture) {
+          for (auto& output : op->OutputVars(true)) {
+            if (var_whitelist.find(output) == var_whitelist.end()) {
+              need_capture = false;
+              break;
+            }
+          }
+        }
+      }
       if (op_or_cudagraphs_.empty() || op_or_cudagraphs_.back().need_capture != need_capture) {
         op_or_cudagraphs_.emplace_back();
         op_or_cudagraphs_.back().need_capture = need_capture;
       }
       auto& op_or_cuda_graph = op_or_cudagraphs_.back();
-      if (op_or_cuda_graph.name.empty()) {
-        op_or_cuda_graph.name = "cuda_graph:";
-      } else {
-        op_or_cuda_graph.name += ":";
+      if (need_capture) {
+        if (op_or_cuda_graph.name.empty()) {
+          op_or_cuda_graph.name = "cuda_graph:";
+        } else {
+          op_or_cuda_graph.name += ":";
+        }
+        op_or_cuda_graph.name += op->Type();
       }
-      op_or_cuda_graph.name += op->Type();
       op_or_cuda_graph.ops.emplace_back(op);
     }
   }
@@ -169,6 +202,10 @@ void PSGPUWorker::TrainFiles() {
   int batch_cnt = 0;
 
   int last_batch_size = 0;
+
+  // with cuda graph profiler, we run cuda_graph or original operator alternately
+  // then the timeline profiler shows how much the cuda graph optimized
+  bool cuda_graph_profiler = (std::getenv("PADDLE_CUDA_GRAPH_PROFILER") != nullptr);
 
   platform::SetDeviceId(place_.GetDeviceId());
   while ((cur_batch = device_reader_->Next()) > 0) {
@@ -208,7 +245,7 @@ void PSGPUWorker::TrainFiles() {
     } else {
       // secend batch we capture the cudagraph
       for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
-        if (op_or_cuda_graph.need_capture) {
+        if (op_or_cuda_graph.need_capture && (!cuda_graph_profiler || batch_cnt % 2 == 0)) {
           if (op_or_cuda_graph.cudagraph == nullptr) {
             static std::mutex _capture_mutex;
             std::lock_guard<std::mutex> lock(_capture_mutex);
