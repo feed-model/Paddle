@@ -203,10 +203,6 @@ void PSGPUWorker::TrainFiles() {
 
   int last_batch_size = 0;
 
-  // with cuda graph profiler, we run cuda_graph or original operator alternately
-  // then the timeline profiler shows how much the cuda graph optimized
-  bool cuda_graph_profiler = (std::getenv("PADDLE_CUDA_GRAPH_PROFILER") != nullptr);
-
   platform::SetDeviceId(place_.GetDeviceId());
   while ((cur_batch = device_reader_->Next()) > 0) {
     total_ins_num += cur_batch;
@@ -245,7 +241,7 @@ void PSGPUWorker::TrainFiles() {
     } else {
       // secend batch we capture the cudagraph
       for (auto& op_or_cuda_graph : op_or_cudagraphs_) {
-        if (op_or_cuda_graph.need_capture && (!cuda_graph_profiler || batch_cnt % 2 == 0)) {
+        if (op_or_cuda_graph.need_capture) {
           if (op_or_cuda_graph.cudagraph == nullptr) {
             static std::mutex _capture_mutex;
             std::lock_guard<std::mutex> lock(_capture_mutex);
