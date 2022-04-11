@@ -1,24 +1,10 @@
-# Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
+# Copyright (c) 2022 PaddlePaddle Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# Copyright(c) 2019 PaddlePaddle Authors.All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0(the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http:  // www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -544,21 +530,44 @@ def fused_seqpool_cvm(input,
                       use_cvm=True,
                       cvm_offset=2):
     """
-    **Embedding Sequence pool**
+    :api_attr: Static Graph
 
-    This layer is the fusion of sequence_pool and continuous_value_model.
+    This OP is the fusion of sequence_pool and continuous_value_model op.
 
-    **Notes: The Op only receives List of LoDTensor as input, only support SUM pooling now.
+    **Note:** The Op only receives List of LoDTensor as input, only support SUM pooling now.
 
     Args:
         input(Variable|list of Variable): Input is List of LoDTensor.
         pool_type(str): pooling type, only support SUM pooling now.
         cvm(Variable): cvm Variable.
-        pad_value(float): padding value of sequence pool.
-        use_cvm(bool): use cvm or not.
+        pad_value(float, optional): padding value of sequence pool. Default: 0.0.
+        use_cvm(bool, optional): use cvm or not. Default: True.
+        cvm_offset(int, optional): cvm offset. Default: 2, which means cvm contains show, click.
+
     Returns:
         Variable|list of Variable: The tensor variable storing sequence pool and cvm
         of input.
+
+    Examples:
+        .. code-block:: python
+
+            import paddle
+            import paddle.fluid as fluid
+            paddle.enable_static()
+
+            data = paddle.static.data(name='x', shape=[-1, 1], dtype='int64', lod_level=1)
+            data2 = paddle.static.data(name='y', shape=[-1, 1], dtype='int64', lod_level=1)
+            inputs = [data, data2]
+            embs = fluid.layers.nn._pull_box_sparse(input=inputs, size=11, is_distributed=True, is_sparse=True)
+
+            label = paddle.static.data(name="label", shape=[-1, 1], dtype="int64", lod_level=1)
+            ones = fluid.layers.fill_constant_batch_size_like(input=label, shape=[-1, 1], dtype="int64", value=1)
+            show_clk = paddle.cast(paddle.concat([ones, label], axis=1), dtype='float32')
+            show_clk.stop_gradient = True
+
+            cvms = fluid.contrib.layers.fused_seqpool_cvm(embs, 'sum', show_clk)
+
+
     """
     helper = LayerHelper('fused_seqpool_cvm', **locals())
 
@@ -1108,7 +1117,7 @@ def sparse_embedding(input,
             vectors can be loaded with the :attr:`param_attr` parameter. The local word vector needs 
             to be transformed into numpy format, and the shape of local word vector should be consistent 
             with :attr:`size` .
-        dtype(str|core.VarDesc.VarType): It refers to the data type of output Tensor. It must be float32 or 
+        dtype(str): It refers to the data type of output Tensor. It must be float32 or 
             float64. Default: float32.
             
     Returns:
@@ -1709,7 +1718,7 @@ def bilateral_slice(x, guide, grid, has_offset, name=None):
             output = fluid.contrib.bilateral_slice(x, guide, grid, has_offset=True)
 
     """
-    if paddle.fluid.in_dygraph_mode():
+    if paddle.fluid._non_static_mode():
         attrs = ('has_offset', has_offset)
         return getattr(_C_ops, "bilateral_slice")(x, grid, guide, *attrs)
 
@@ -1783,7 +1792,7 @@ def correlation(x,
 
     """
 
-    if paddle.fluid.in_dygraph_mode():
+    if paddle.fluid._non_static_mode():
         attrs = ("pad_size", pad_size, "kernel_size", kernel_size,
                  "max_displacement", max_displacement, "stride1", stride1,
                  "stride2", stride2, "corr_type_multiply", corr_type_multiply)
@@ -2001,7 +2010,7 @@ def pow2_decay_with_linear_warmup(warmup_steps,
                                   end_lr,
                                   dtype='float32',
                                   name=None):
-    if paddle.fluid.in_dygraph_mode():
+    if paddle.fluid._non_static_mode():
         raise NotImplementedError(
             "pow2_decay_with_linear_warmup does not support dygraph mode yet.")
 

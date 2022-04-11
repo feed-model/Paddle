@@ -43,7 +43,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/macros.h"  // for DISABLE_COPY_AND_ASSIGN
 #include "paddle/fluid/platform/place.h"
 #ifdef PADDLE_WITH_PSCORE
-#include "paddle/fluid/distributed/ps/service/communicator/communicator.h"
+#include "paddle/fluid/distributed/ps/wrapper/fleet.h"
 #endif
 #ifdef PADDLE_WITH_PSLIB
 #include "afs_api.h"
@@ -54,6 +54,29 @@ namespace framework {
 
 #define TYPEALIGN(ALIGNVAL, LEN) \
   (((uint64_t)(LEN) + ((ALIGNVAL)-1)) & ~((uint64_t)((ALIGNVAL)-1)))
+
+class AfsWrapper {
+ public:
+  AfsWrapper() {}
+  virtual ~AfsWrapper() {}
+  void init(const std::string& fs_name, const std::string& fs_user,
+            const std::string& pass_wd, const std::string& conf);
+  int remove(const std::string& path);
+  int mkdir(const std::string& path);
+  std::vector<std::string> list(const std::string& path);
+
+  int exist(const std::string& path);
+  int upload(const std::string& local_file, const std::string& afs_file);
+
+  int download(const std::string& local_file, const std::string& afs_file);
+
+  int touchz(const std::string& path);
+  std::string cat(const std::string& path);
+  int mv(const std::string& old_path, const std::string& dest_path);
+
+ private:
+  paddle::ps::AfsApiWrapper afs_handler_;
+};
 
 class PSGPUWrapper {
  public:
@@ -177,10 +200,8 @@ class PSGPUWrapper {
       current_task_ = nullptr;
       gpu_free_channel_->Put(current_task_);
 
-      table_id_ = 1;
-#ifdef PADDLE_WITH_PSLIB
       table_id_ = 0;
-#endif
+
       // start build cpu&gpu ps thread
       start_build_thread();
     }
