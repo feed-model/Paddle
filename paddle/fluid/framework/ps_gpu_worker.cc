@@ -23,7 +23,7 @@ limitations under the License. */
 #include "paddle/fluid/platform/profiler/event_tracing.h"
 
 #if (defined PADDLE_WITH_NCCL || defined PADDLE_WITH_RCCL) && \
-    (defined PADDLE_WITH_PSLIB)
+    (defined PADDLE_WITH_PSLIB)z
 #include "paddle/fluid/platform/cuda_device_guard.h"
 
 #if defined _WIN32 || defined __APPLE__
@@ -130,7 +130,13 @@ void PSGPUWorker::PrepareCudaGraph() {
     "adam",
     "coalesce_tensor",
   };
-  // when op is captured, its inputs and outputs and those grads will be never changed
+  // these op can not be captured
+  static const std::unordered_set<std::string> op_black_list = {
+    "c_sync_calc_stream",
+    "c_allreduce_sum",
+    "c_sync_comm_stream",
+  }
+  // when op is captured, its inputs and outputs and their grads will be never changed
   // so the capture attribute can infect another op whose all inputs and outputs nerver changed
   std::unordered_set<std::string> var_whitelist;
   for (auto& op : ops_) {
@@ -157,26 +163,29 @@ void PSGPUWorker::PrepareCudaGraph() {
     }
     if (!need_skip) {
       bool need_capture = false;
-      if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
-        need_capture = true;
-      }
-      if (!need_capture) {
-        need_capture = true;
-        for (auto& input : op->InputVars()) {
-          if (var_whitelist.find(input) == var_whitelist.end()) {
-            need_capture = false;
-            break;
-          }
+      if (op_black_list.find(op->Type()) == op_black_list.end()) {
+        if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
+          need_capture = true;
         }
-        if (need_capture) {
-          for (auto& output : op->OutputVars(true)) {
-            if (var_whitelist.find(output) == var_whitelist.end()) {
+        if (!need_capture) {
+          need_capture = true;
+          for (auto& input : op->InputVars()) {
+            if (var_whitelist.find(input) == var_whitelist.end()) {
               need_capture = false;
               break;
             }
           }
+          if (need_capture) {
+            for (auto& output : op->OutputVars(true)) {
+              if (var_whitelist.find(output) == var_whitelist.end()) {
+                need_capture = false;
+                break;
+              }
+            }
+          }
         }
       }
+
       if (op_or_cudagraphs_.empty() || op_or_cudagraphs_.back().need_capture != need_capture) {
         op_or_cudagraphs_.emplace_back();
         op_or_cudagraphs_.back().need_capture = need_capture;
