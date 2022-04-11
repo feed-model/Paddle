@@ -126,21 +126,21 @@ void PSGPUWorker::PrepareCudaGraph() {
   std::string enable_cuda_graph_capture_attr_name = "enable_cuda_graph_capture";
   op_or_cudagraphs_.reserve(ops_.size());
 
-  static const std::unordered_set<std::string> op_white_list = {
+  static const std::unordered_set<std::string> op_whitelist = {
     "adam",
     "coalesce_tensor",
   };
   // these op can not be captured
-  static const std::unordered_set<std::string> op_black_list = {
+  static const std::unordered_set<std::string> op_blacklist = {
     "c_sync_calc_stream",
     "c_allreduce_sum",
     "c_sync_comm_stream",
-  }
+  };
   // when op is captured, its inputs and outputs and their grads will be never changed
   // so the capture attribute can infect another op whose all inputs and outputs nerver changed
   std::unordered_set<std::string> var_whitelist;
   for (auto& op : ops_) {
-    if (op_white_list.find(op->Type()) != op_white_list.end() ||
+    if (op_whitelist.find(op->Type()) != op_whitelist.end() ||
         (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name))) {
       for (auto& input : op->InputVars()) {
         var_whitelist.emplace(input);
@@ -163,7 +163,7 @@ void PSGPUWorker::PrepareCudaGraph() {
     }
     if (!need_skip) {
       bool need_capture = false;
-      if (op_black_list.find(op->Type()) == op_black_list.end()) {
+      if (op_blacklist.find(op->Type()) == op_blacklist.end()) {
         if (op->HasAttr(enable_cuda_graph_capture_attr_name) && op->Attr<int>(enable_cuda_graph_capture_attr_name)) {
           need_capture = true;
         }
