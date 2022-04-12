@@ -67,12 +67,11 @@ inline T *RestoreHostMemIfCapturingCUDAGraph(T *host_mem, size_t size) {
 #ifdef PADDLE_WITH_CUDA
   if (UNLIKELY(IsCUDAGraphCapturing())) {
     size_t nbytes = size * sizeof(T);
-    auto data_alloc = paddle::memory::Alloc(paddle::platform::CUDAPinnedPlace(),
-                                       nbytes);
-    void *new_host_mem = data_alloc->ptr();
+    void *new_host_mem = nullptr;
+    PADDLE_ENFORCE_GPU_SUCCESS(cudaMallocHost(&new_host_mem, nbytes));
     std::memcpy(new_host_mem, host_mem, nbytes);
     AddResetCallbackIfCapturingCUDAGraph(
-        [data_alloc=std::move()] mutable { data_alloc.reset(nullptr); });
+        [new_host_mem]  { PADDLE_ENFORCE_GPU_SUCCESS(cudaFreeHost(new_host_mem)); });
     return reinterpret_cast<T *>(new_host_mem);
   }
 #endif
