@@ -180,7 +180,8 @@ void statAuc(const Context &dev_ctx,
                                       origin_stat_pos,
                                       origin_stat_neg,
                                       batch_size,
-                                      slide_steps);
+                                      slide_steps,
+                                      ignore_illegal_label);
   UpdateSumDataKernel<<<(bucket_length + PADDLE_CUDA_NUM_THREADS - 1) /
                             PADDLE_CUDA_NUM_THREADS,
                         PADDLE_CUDA_NUM_THREADS,
