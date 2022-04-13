@@ -188,7 +188,7 @@ def auc(input,
             fc_out = static.nn.fc(x=data, size=2)
             predict = F.softmax(x=fc_out)
             # ignore data where the mask is not True
-            masked_label = label + (1 - static.cast(mask, dtype="int")) * 2
+            masked_label = label + (static.cast(mask, dtype="int") - 1) * 2
             result = static.auc(input=predict, label=masked_label, ignore_illegal_label=True)
 
             place = paddle.CPUPlace()
