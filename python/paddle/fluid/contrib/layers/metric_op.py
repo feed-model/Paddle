@@ -18,6 +18,7 @@ Contrib layers just related to metric.
 from __future__ import print_function
 
 import warnings
+import paddle
 from paddle.fluid.layer_helper import LayerHelper
 from paddle.fluid.initializer import Normal, Constant
 from paddle.fluid.framework import Variable
@@ -109,7 +110,7 @@ def ctr_metric_bundle(input, label, mask=None):
                 value=0.0, force_cpu=True))
         
     if mask is not None:
-        mask = nn.cast(mask, dtype='float32')
+        mask = paddle.cast(mask, dtype='float32')
         input = input * mask
         label = label * mask
 
