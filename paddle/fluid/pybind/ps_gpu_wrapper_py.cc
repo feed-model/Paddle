@@ -63,6 +63,7 @@ void BindPSGPUWrapper(py::module* m) {
       .def("finalize", &framework::PSGPUWrapper::Finalize,
            py::call_guard<py::gil_scoped_release>());
 }  // end PSGPUWrapper
+#ifdef PADDLE_WITH_PSLIB
 void BindAfsWrapper(py::module* m) {
   py::class_<framework::AfsWrapper, std::shared_ptr<framework::AfsWrapper>>(
       *m, "AfsWrapper")
@@ -88,6 +89,7 @@ void BindAfsWrapper(py::module* m) {
       .def("mv", &framework::AfsWrapper::mv,
            py::call_guard<py::gil_scoped_release>());
 }
-#endif
+#endif // PADDLE_WITH_PSLIB
+#endif // PADDLE_WITH_HETERPS
 }  // end namespace pybind
 }  // end namespace paddle

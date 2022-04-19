@@ -2817,6 +2817,7 @@ int SlotRecordInMemoryDataFeed::Next() {
 #endif
 }
 
+#if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
 void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num) {
   int offset_cols_size = (ins_num + 1);
   size_t slot_total_num = (use_slot_size_ * offset_cols_size);
@@ -2921,7 +2922,6 @@ void SlotRecordInMemoryDataFeed::BuildSlotBatchGPU(const int ins_num) {
                 used_slot_gpu_types);
 }
 
-#if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
 MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
                                    const std::vector<UsedSlotInfo>& infos) {
   place_ = place;
@@ -2945,40 +2945,6 @@ MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
       ++used_float_num_;
     }
   }
-  copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
-
-  slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
-
-  int device_id = place_.GetDeviceId();
-  VLOG(3) << "begin get batch pack device id: " << device_id;
-  // sync
-  CUDA_CHECK(cudaStreamSynchronize(stream_));
-}
-
-MiniBatchGpuPack::MiniBatchGpuPack(const paddle::platform::Place& place,
-                                   const std::vector<SlotConf>& slot_conf) {
-  place_ = place;
-  stream_ = dynamic_cast<platform::CUDADeviceContext*>(
-                platform::DeviceContextPool::Instance().Get(place))
-                ->stream();
-
-  ins_num_ = 0;
-  pv_num_ = 0;
-  used_float_num_ = 0;
-  used_uint64_num_ = 0;
-
-  used_slot_size_ = static_cast<int>(slot_conf.size());
-  for (int i = 0; i < used_slot_size_; ++i) {
-    auto& info = slot_conf[i];
-    if (info.type[0] == 'u') {
-      gpu_used_slots_.push_back({1, info.slot_value_idx});
-      ++used_uint64_num_;
-    } else {
-      gpu_used_slots_.push_back({0, info.slot_value_idx});
-      ++used_float_num_;
-    }
-  }
-
   copy_host2device(&gpu_slots_, gpu_used_slots_.data(), gpu_used_slots_.size());
 
   slot_buf_ptr_ = memory::AllocShared(place_, used_slot_size_ * sizeof(void*));
@@ -3144,158 +3110,6 @@ void MiniBatchGpuPack::pack_instance(const SlotRecord* ins_vec, int num) {
     pack_uint64_data(ins_vec, num);
   } else {  // only float
     pack_float_data(ins_vec, num);
-  }
-  // to gpu
-  transfer_to_gpu();
-}
-
-void MiniBatchGpuPack::pack_uint64_data(const std::vector<Record>& ins_vec) {
-  int uint64_total_num = 0;
-
-  auto num = ins_vec.size();
-  buf_.h_float_lens.clear();
-  buf_.h_float_keys.clear();
-  buf_.h_float_offset.clear();
-
-  buf_.h_uint64_lens.resize(num + 1);
-  buf_.h_uint64_lens[0] = 0;
-
-  for (size_t i = 0; i < num; ++i) {
-    auto& r = ins_vec[i];
-    uint64_total_num += r.uint64_feasign_values_.size();
-    buf_.h_uint64_lens[i + 1] = uint64_total_num;
-  }
-
-  int uint64_cols = (used_uint64_num_ + 1);
-  buf_.h_uint64_offset.resize(uint64_cols * num);
-  buf_.h_uint64_keys.resize(uint64_total_num);
-
-  size_t fea_num = 0;
-  uint64_total_num = 0;
-  for (size_t i = 0; i < num; ++i) {
-    auto& r = ins_vec[i];
-    fea_num = r.uint64_feasign_values_.size();
-    if (fea_num > 0) {
-      memcpy(&buf_.h_uint64_keys[uint64_total_num],
-             r.uint64_feasign_values_.data(), fea_num * sizeof(uint64_t));
-    }
-    uint64_total_num += fea_num;
-
-    // copy uint64 offset
-    memcpy(&buf_.h_uint64_offset[i * uint64_cols], r.uint64_offset_.data(),
-           sizeof(int) * uint64_cols);
-  }
-  CHECK(uint64_total_num == static_cast<int>(buf_.h_uint64_lens.back()))
-      << "uint64 value length error";
-}
-
-void MiniBatchGpuPack::pack_float_data(const std::vector<Record>& ins_vec) {
-  int float_total_num = 0;
-  auto num = ins_vec.size();
-
-  buf_.h_uint64_lens.clear();
-  buf_.h_uint64_offset.clear();
-  buf_.h_uint64_keys.clear();
-
-  buf_.h_float_lens.resize(num + 1);
-  buf_.h_float_lens[0] = 0;
-
-  for (size_t i = 0; i < num; ++i) {
-    auto& r = ins_vec[i];
-    float_total_num += r.float_feasign_values_.size();
-    buf_.h_float_lens[i + 1] = float_total_num;
-  }
-
-  int float_cols = (used_float_num_ + 1);
-  buf_.h_float_offset.resize(float_cols * num);
-  buf_.h_float_keys.resize(float_total_num);
-
-  size_t fea_num = 0;
-  float_total_num = 0;
-  for (size_t i = 0; i < num; ++i) {
-    auto& r = ins_vec[i];
-    fea_num = r.float_feasign_values_.size();
-    memcpy(&buf_.h_float_keys[float_total_num], r.float_feasign_values_.data(),
-           fea_num * sizeof(float));
-    float_total_num += fea_num;
-
-    // copy float offset
-    memcpy(&buf_.h_float_offset[i * float_cols], r.float_offset_.data(),
-           sizeof(int) * float_cols);
-  }
-  CHECK(float_total_num == static_cast<int>(buf_.h_float_lens.back()))
-      << "float value length error";
-}
-
-void MiniBatchGpuPack::pack_all_data(const std::vector<Record>& ins_vec) {
-  int uint64_total_num = 0;
-  int float_total_num = 0;
-  CHECK(used_uint64_num_ > 0 || used_float_num_ > 0);
-
-  auto num = ins_vec.size();
-  buf_.h_uint64_lens.resize(num + 1);
-  buf_.h_uint64_lens[0] = 0;
-  buf_.h_float_lens.resize(num + 1);
-  buf_.h_float_lens[0] = 0;
-
-  for (size_t i = 0; i < num; ++i) {
-    auto& r = ins_vec[i];
-    uint64_total_num += r.uint64_feasign_values_.size();
-    buf_.h_uint64_lens[i + 1] = uint64_total_num;
-    float_total_num += r.float_feasign_values_.size();
-    buf_.h_float_lens[i + 1] = float_total_num;
-  }
-
-  int uint64_cols = (used_uint64_num_ + 1);
-  buf_.h_uint64_offset.resize(uint64_cols * num);
-  buf_.h_uint64_keys.resize(uint64_total_num);
-
-  int float_cols = (used_float_num_ + 1);
-  buf_.h_float_offset.resize(float_cols * num);
-  buf_.h_float_keys.resize(float_total_num);
-
-  size_t fea_num = 0;
-  uint64_total_num = 0;
-  float_total_num = 0;
-  for (size_t i = 0; i < num; ++i) {
-    auto& r = ins_vec[i];
-    fea_num = r.uint64_feasign_values_.size();
-    if (fea_num > 0) {
-      memcpy(&buf_.h_uint64_keys[uint64_total_num],
-             r.uint64_feasign_values_.data(), fea_num * sizeof(uint64_t));
-    }
-    uint64_total_num += fea_num;
-
-    fea_num = r.float_feasign_values_.size();
-    memcpy(&buf_.h_float_keys[float_total_num], r.float_feasign_values_.data(),
-           fea_num * sizeof(float));
-    float_total_num += fea_num;
-
-    // copy uint64 offset
-    memcpy(&buf_.h_uint64_offset[i * uint64_cols], r.uint64_offset_.data(),
-           sizeof(int) * uint64_cols);
-
-    // copy float offset
-    memcpy(&buf_.h_float_offset[i * float_cols], r.float_offset_.data(),
-           sizeof(int) * float_cols);
-  }
-  CHECK(uint64_total_num == static_cast<int>(buf_.h_uint64_lens.back()))
-      << "uint64 value length error";
-  CHECK(float_total_num == static_cast<int>(buf_.h_float_lens.back()))
-      << "float value length error";
-}
-
-void MiniBatchGpuPack::pack_instance(const std::vector<Record>& ins_vec) {
-  auto num = ins_vec.size();
-  ins_num_ = num;
-  CHECK(used_uint64_num_ > 0 || used_float_num_ > 0);
-  // uint64 and float
-  if (used_uint64_num_ > 0 && used_float_num_ > 0) {
-    pack_all_data(ins_vec);
-  } else if (used_uint64_num_ > 0) {  // uint64
-    pack_uint64_data(ins_vec);
-  } else {  // only float
-    pack_float_data(ins_vec);
   }
   // to gpu
   transfer_to_gpu();

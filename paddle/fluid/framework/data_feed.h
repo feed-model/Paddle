@@ -41,6 +41,10 @@ limitations under the License. */
 #include "paddle/fluid/framework/variable.h"
 #include "paddle/fluid/platform/timer.h"
 #include "paddle/fluid/string/string_helper.h"
+#if defined(PADDLE_WITH_CUDA)
+#include "paddle/fluid/platform/cuda_device_guard.h"
+#include "paddle/fluid/platform/device/gpu/gpu_info.h"
+#endif
 
 DECLARE_int32(record_pool_max_size);
 DECLARE_int32(slotpool_thread_num);
@@ -420,7 +424,9 @@ struct UsedSlotGpuType {
   int is_uint64_value;
   int slot_value_idx;
 };
-#define CUDA_CHECK(val) CHECK(val == cudaSuccess)
+
+#if defined(PADDLE_WITH_CUDA) && defined(PADDLE_WITH_HETERPS)
+#define CUDA_CHECK(val) CHECK(val == gpuSuccess)
 template <typename T>
 struct CudaBuffer {
   T* cu_buffer;
@@ -530,12 +536,9 @@ class MiniBatchGpuPack {
  public:
   MiniBatchGpuPack(const paddle::platform::Place& place,
                    const std::vector<UsedSlotInfo>& infos);
-  MiniBatchGpuPack(const paddle::platform::Place& place,
-                   const std::vector<SlotConf>& slot_conf);
   ~MiniBatchGpuPack();
   void reset(const paddle::platform::Place& place);
   void pack_instance(const SlotRecord* ins_vec, int num);
-  void pack_instance(const std::vector<Record>& ins_vec);
   int ins_num() { return ins_num_; }
   int pv_num() { return pv_num_; }
   BatchGPUValue& value() { return value_; }
@@ -560,8 +563,6 @@ class MiniBatchGpuPack {
                                              this->place_);
       }
     }
-    //    fprintf(stdout, "float total: %d, uint64: %d\n", float_total_len,
-    //          uint64_total_len);
   }
   LoDTensor& float_tensor(void) { return float_tensor_; }
   LoDTensor& uint64_tensor(void) { return uint64_tensor_; }
@@ -569,17 +570,9 @@ class MiniBatchGpuPack {
   HostBuffer<size_t>& offsets(void) { return offsets_; }
   HostBuffer<void*>& h_tensor_ptrs(void) { return h_tensor_ptrs_; }
 
-  void* gpu_slot_offsets(void) {
-    return gpu_slot_offsets_->ptr();
-    // return
-    // reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(gpu_slot_offsets_->ptr()));
-  }
+  void* gpu_slot_offsets(void) { return gpu_slot_offsets_->ptr(); }
 
-  void* slot_buf_ptr(void) {
-    return slot_buf_ptr_->ptr();
-    // return
-    // reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(slot_buf_ptr_->ptr()));
-  }
+  void* slot_buf_ptr(void) { return slot_buf_ptr_->ptr(); }
 
   void resize_gpu_slot_offsets(const size_t slot_total_bytes) {
     if (gpu_slot_offsets_ == nullptr) {
@@ -602,9 +595,6 @@ class MiniBatchGpuPack {
   void pack_all_data(const SlotRecord* ins_vec, int num);
   void pack_uint64_data(const SlotRecord* ins_vec, int num);
   void pack_float_data(const SlotRecord* ins_vec, int num);
-  void pack_all_data(const std::vector<Record>& ins_vec);
-  void pack_uint64_data(const std::vector<Record>& ins_vec);
-  void pack_float_data(const std::vector<Record>& ins_vec);
 
  public:
   template <typename T>
@@ -638,14 +628,7 @@ class MiniBatchGpuPack {
   std::vector<UsedSlotGpuType> gpu_used_slots_;
   std::vector<SlotRecord> ins_vec_;
   const SlotRecord* batch_ins_ = nullptr;
-  // std::vector<int> float_slot_offsets_;
-  // std::vector<int> uint64_slot_offsets_;
 
-  // uint64 tensor
-  LoDTensor uint64_tensor_;
-  // float tensor
-  LoDTensor float_tensor_;
-  // batch
   HostBuffer<size_t> offsets_;
   HostBuffer<void*> h_tensor_ptrs_;
 
@@ -682,18 +665,6 @@ class MiniBatchGpuPackMgr {
     return pack_list_[device_id];
   }
 
-  // one device one thread
-  MiniBatchGpuPack* get(const paddle::platform::Place& place,
-                        const std::vector<SlotConf>& infos) {
-    int device_id = place.GetDeviceId();
-    if (pack_list_[device_id] == nullptr) {
-      pack_list_[device_id] = new MiniBatchGpuPack(place, infos);
-    } else {
-      pack_list_[device_id]->reset(place);
-    }
-    return pack_list_[device_id];
-  }
-
  private:
   MiniBatchGpuPack* pack_list_[MAX_DEIVCE_NUM];
 };
@@ -713,10 +684,7 @@ class DLManager {
 
  public:
   DLManager() {}
-
-  ~DLManager() {
 #ifdef _LINUX
-    std::lock_guard<std::mutex> lock(mutex_);
     for (auto it = handle_map_.begin(); it != handle_map_.end(); ++it) {
       delete it->second.parser;
       dlclose(it->second.module);
